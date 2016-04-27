@@ -58,3 +58,5 @@ compiletest_rs = { version = "*", optional = true }
 [dev-dependencies]
 rand = "*"
 time = "*"
+bincode = "0.5.4"
+rustc-serialize = "*"

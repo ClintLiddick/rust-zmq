@@ -32,66 +32,69 @@ fn version_reporting() {
 }
 
 #[test]
+#[allow(unused_must_use)]
 fn request_respond_string() {
+    let mut ctx: zmq::Context = zmq::Context::new();
+
     // run requester (client)
-    let req_handle = thread::spawn(|| {
-        let mut ctx = zmq::Context::new();
-        let mut socket = ctx.socket(zmq::REQ).unwrap();
-        let _ = socket.connect("tcp://localhost:12345").unwrap();
-        let _ = socket.send_str("hello", 0).unwrap();
-        let s = socket.recv_string(0).unwrap().unwrap();
+    let mut req_socket = ctx.socket(zmq::REQ).unwrap();
+    let req_handle = thread::spawn(move || {
+        req_socket.connect("inproc://zmq-test");
+        req_socket.send_str("hello", 0);
+        let s = req_socket.recv_string(0).unwrap().unwrap();
         assert_eq!("world", s);
-        let _ = socket.close().unwrap();
+        req_socket.close();
     });
 
     // run responder (server)
-    let mut ctx = zmq::Context::new();
+    // let mut ctx = zmq::Context::new();
     let mut socket = ctx.socket(zmq::REP).unwrap();
-    let _ = socket.bind("tcp://*:12345").unwrap();
+    socket.bind("inproc://zmq-test");
     let s = socket.recv_string(0).unwrap().unwrap();
     assert_eq!("hello", s);
-    let _ = socket.send_str("world", 0).unwrap();
-    let _ = req_handle.join().unwrap();
+    socket.send_str("world", 0);
+    req_handle.join();
 }
 
 #[test]
+#[allow(unused_must_use)]
 fn request_respond_msg() {
-    static req_data: TestStruct = TestStruct { x: 1 };
-    static resp_data: TestStruct = TestStruct { x: 2 };
+    static REQ_DATA: TestStruct = TestStruct { x: 1 };
+    static RESP_DATA: TestStruct = TestStruct { x: 2 };
+    let mut ctx = zmq::Context::new();
     let bin_limit = bincode::SizeLimit::Bounded(4);
 
     // run requester (client)
+    let mut req_socket = ctx.socket(zmq::REQ).unwrap();
     let req_handle = thread::spawn(move || {
         // setup
-        let mut ctx = zmq::Context::new();
-        let mut socket = ctx.socket(zmq::REQ).unwrap();
-        let _ = socket.connect("tcp://localhost:12346").unwrap();
+        req_socket.connect("inproc://zmq-test");
         // send req
-        let bin_data = encode(&req_data, bin_limit).unwrap();
+        let bin_data = encode(&REQ_DATA, bin_limit).unwrap();
         let msg_out = zmq::Message::from_slice(&bin_data).unwrap();
-        let _ = socket.send_msg(msg_out, 0).unwrap();
+        req_socket.send_msg(msg_out, 0);
         // receive resp
         let mut msg_in = zmq::Message::new().unwrap();
-        socket.recv(&mut msg_in, 0).unwrap();
+        req_socket.recv(&mut msg_in, 0).unwrap();
         let resp: TestStruct = decode(&msg_in).unwrap();
-        assert_eq!(resp_data, resp);
+        assert_eq!(RESP_DATA, resp);
         // cleanup
-        let _ = socket.close().unwrap();
+        req_socket.close();
     });
 
     // run responder (server)
     // setup
-    let mut ctx = zmq::Context::new();
     let mut socket = ctx.socket(zmq::REP).unwrap();
-    let _ = socket.bind("tcp://*:12346").unwrap();
+    socket.bind("inproc://zmq-test");
     // receive req
     let msg_in = socket.recv_bytes(0).unwrap();
     let req: TestStruct = decode(&msg_in[..]).unwrap();
+    assert_eq!(REQ_DATA, req);
     // send resp
-    let bin_data = encode(&resp_data, bin_limit).unwrap();
+    let bin_data = encode(&RESP_DATA, bin_limit).unwrap();
     let msg_out = zmq::Message::from_slice(&bin_data).unwrap();
     socket.send_msg(msg_out, 0);
 
     // cleanup
-    let _ = req_handle.join().unwrap();
+    req_handle.join();
 }
